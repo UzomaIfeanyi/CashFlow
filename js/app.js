@@ -4,37 +4,38 @@ const BUDGET_STORE='cashflow.budgets.v1';let budgets={};try{const parsed=JSON.pa
 const GOALS_KEY='cashflow.savings-goals.v1',ACTIVITY_KEY='cashflow.savings-activity.v1';
 function safeArray(key){try{const v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v:[]}catch{return []}}
 let goals=safeArray(GOALS_KEY).filter(g=>g&&typeof g.id==='string'&&typeof g.name==='string'&&Number.isFinite(g.target)&&g.target>0);
-let activity=safeArray(ACTIVITY_KEY).filter(a=>a&&typeof a.goalId==='string'&&Number.isFinite(a.amount)&&a.amount>0&&['deposit','withdraw'].includes(a.type));
+let activity=safeArray(ACTIVITY_KEY).filter(a=>a&&typeof a.goalId==='string'&&Number.isFinite(a.amount)&&a.amount>0&&['deposit','withdraw','emergency','opening'].includes(a.type));
 const uid=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(36).slice(2);
-const savedAmount=id=>Math.round(activity.filter(a=>a.goalId===id).reduce((sum,a)=>sum+(a.type==='deposit'?a.amount:-a.amount),0)*100)/100;
+const savedAmount=id=>Math.round(activity.filter(a=>a.goalId===id).reduce((sum,a)=>sum+(['deposit','opening'].includes(a.type)?a.amount:-a.amount),0)*100)/100;
 function persistSavings(nextGoals,nextActivity){try{localStorage.setItem(GOALS_KEY,JSON.stringify(nextGoals));localStorage.setItem(ACTIVITY_KEY,JSON.stringify(nextActivity));return true}catch{$('goalMessage').textContent='Could not save. Check available browser storage.';return false}}
 function renderSavings(){
 const list=$('goalList'),history=$('goalHistory');list.replaceChildren();history.replaceChildren();
 if(!goals.length)list.append(make('p','empty','No savings goals yet. Create one above.'));
 for(const g of goals){
-const balance=savedAmount(g.id),pct=balance/g.target*100,card=make('article','goal-card'),top=make('div','goal-top'),title=make('div'),h=make('h3','',g.name),meta=make('div','goal-meta',money(balance)+' saved of '+money(g.target)+(g.deadline?' · Due '+g.deadline:'')),status=make('span','goal-status',pct>=100?'Goal reached!':pct.toFixed(0)+'% complete');
+const balance=savedAmount(g.id),pct=balance/g.target*100,card=make('article','goal-card'),top=make('div','goal-top'),title=make('div'),h=make('h3','',g.name),meta=make('div','goal-meta',money(balance)+' saved of '+money(g.target)+(g.deadline?' · Due '+g.deadline:'')),status=make('span','goal-status',balance<0?'Shortfall: '+money(-balance):pct>=100?'Goal reached!':pct.toFixed(0)+'% complete');
 title.append(h,meta);top.append(title,status);
 const progress=make('div','goal-progress'),track=make('div','bar-track'),bar=make('div','bar-fill');bar.style.width=Math.min(100,Math.max(0,pct))+'%';track.append(bar);progress.append(track);
 const actions=make('div','goal-actions'),label=make('label','', 'Amount'),input=make('input');input.type='number';input.min='0.01';input.max='999999999999';input.step='0.01';input.placeholder='Enter amount';input.setAttribute('aria-label','Amount for '+g.name);label.append(input);
-const deposit=make('button','','+ Add savings'),withdraw=make('button','withdraw','− Withdraw'),feedback=make('p','goal-feedback','');feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');deposit.type=withdraw.type='button';
+const deposit=make('button','','+ Add savings'),withdraw=make('button','withdraw','− Withdraw'),emergency=make('button','withdraw','Emergency withdrawal'),feedback=make('p','goal-feedback','');feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');deposit.type=withdraw.type='button';
 function change(type){
 const raw=input.value.trim(),amount=Math.round(Number(raw)*100)/100;
 if(!raw||!Number.isFinite(amount)||amount<=0||amount>999999999999){feedback.textContent='Please enter a positive amount first (e.g. 100000).';input.focus();return}
-if(type==='withdraw'&&amount>savedAmount(g.id)){feedback.textContent='You cannot withdraw more than '+money(savedAmount(g.id))+'.';return}
+if(type==='withdraw'&&amount>Math.max(0,savedAmount(g.id))){feedback.textContent='Regular withdrawal limit: '+money(Math.max(0,savedAmount(g.id)))+'. Use Emergency withdrawal if you need more.';return}
+if(type==='emergency'){const balance=savedAmount(g.id),after=Math.round((balance-amount)*100)/100;if(!confirm('Emergency withdrawal of '+money(amount)+' from '+g.name+'. Current recorded savings: '+money(balance)+'. New balance: '+money(after)+(after<0?' (shortfall of '+money(-after)+')':'')+'. This is a tracking entry, not a transfer of actual funds. Continue?'))return}
 const next=[...activity,{id:uid(),goalId:g.id,goalName:g.name,type,amount,date:today(),createdAt:Date.now()}];
 if(!persistSavings(goals,next)){feedback.textContent='Unable to save. Check browser storage settings.';return}
-activity=next;const message=(type==='deposit'?'Added ':'Withdrew ')+money(amount)+' '+(type==='deposit'?'to':'from')+' '+g.name+'.';
+activity=next;const message=(type==='deposit'?'Added ':type==='emergency'?'Emergency withdrawal of ':'Withdrew ')+money(amount)+' '+(type==='deposit'?'to':'from')+' '+g.name+'.';
 $('goalMessage').textContent=message;renderSavings();
 const current=[...$('goalList').querySelectorAll('.goal-card')].find(el=>el.querySelector('h3')?.textContent===g.name);
 if(current){const status=current.querySelector('.goal-feedback');if(status)status.textContent=message}
 }
-deposit.addEventListener('click',()=>change('deposit'));withdraw.addEventListener('click',()=>change('withdraw'));actions.append(label,deposit,withdraw);card.append(top,progress,actions,feedback);list.append(card)}
+deposit.addEventListener('click',()=>change('deposit'));withdraw.addEventListener('click',()=>change('withdraw'));emergency.type='button';emergency.addEventListener('click',()=>change('emergency'));actions.append(label,deposit,withdraw,emergency);card.append(top,progress,actions,feedback);list.append(card)}
 
 const recent=[...activity].sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);if(!recent.length){const tr=make('tr'),td=make('td','empty','No savings activity yet.');td.colSpan=4;tr.append(td);history.append(tr)}
-for(const a of recent){const tr=make('tr');for(const v of [a.date,a.goalName||goals.find(g=>g.id===a.goalId)?.name||'Goal',a.type==='deposit'?'Contribution':'Withdrawal',(a.type==='deposit'?'+':'−')+money(a.amount)])tr.append(make('td','',v));history.append(tr)}
+for(const a of recent){const tr=make('tr');for(const v of [a.date,a.goalName||goals.find(g=>g.id===a.goalId)?.name||'Goal',a.type==='deposit'?'Contribution':a.type==='opening'?'Opening balance':a.type==='emergency'?'Emergency withdrawal':'Withdrawal',(['deposit','opening'].includes(a.type)?'+':'−')+money(a.amount)])tr.append(make('td','',v));history.append(tr)}
 }
-$('goalForm').addEventListener('submit',e=>{e.preventDefault();const name=$('goalName').value.trim(),target=Math.round(Number($('goalTarget').value)*100)/100,deadline=$('goalDeadline').value;if(!name||!Number.isFinite(target)||target<=0||target>999999999999||deadline&&!/^\d{4}-\d{2}-\d{2}$/.test(deadline)){$('goalMessage').textContent='Enter a name, positive target and valid deadline.';return}
-const next=[...goals,{id:uid(),name,target,deadline,createdAt:Date.now()}];if(!persistSavings(next,activity))return;goals=next;e.target.reset();$('goalMessage').textContent='Savings goal created.';renderSavings()});
+$('goalForm').addEventListener('submit',e=>{e.preventDefault();const name=$('goalName').value.trim(),target=Math.round(Number($('goalTarget').value)*100)/100,deadline=$('goalDeadline').value,openingRaw=$('goalOpening').value.trim(),opening=Math.round(Number(openingRaw||'0')*100)/100;if(!name||!Number.isFinite(target)||target<=0||target>999999999999||!Number.isFinite(opening)||opening<0||opening>999999999999||deadline&&!/^\d{4}-\d{2}-\d{2}$/.test(deadline)){$('goalMessage').textContent='Enter a name, positive target and valid deadline.';return}
+const goal={id:uid(),name,target,deadline,createdAt:Date.now()};const next=[...goals,goal];const nextActivity=opening>0?[...activity,{id:uid(),goalId:goal.id,goalName:name,type:'opening',amount:opening,date:today(),createdAt:Date.now()}]:activity;if(!persistSavings(next,nextActivity))return;goals=next;activity=nextActivity;e.target.reset();$('goalMessage').textContent='Savings goal created.';renderSavings()});
 $('currency').addEventListener('change',renderSavings);
 renderSavings();
 
