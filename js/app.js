@@ -16,10 +16,20 @@ const balance=savedAmount(g.id),pct=balance/g.target*100,card=make('article','go
 title.append(h,meta);top.append(title,status);
 const progress=make('div','goal-progress'),track=make('div','bar-track'),bar=make('div','bar-fill');bar.style.width=Math.min(100,Math.max(0,pct))+'%';track.append(bar);progress.append(track);
 const actions=make('div','goal-actions'),label=make('label','', 'Amount'),input=make('input');input.type='number';input.min='0.01';input.max='999999999999';input.step='0.01';input.placeholder='Enter amount';input.setAttribute('aria-label','Amount for '+g.name);label.append(input);
-const deposit=make('button','','+ Add savings'),withdraw=make('button','withdraw','− Withdraw');deposit.type=withdraw.type='button';
-function change(type){const amount=Math.round(Number(input.value)*100)/100;if(!Number.isFinite(amount)||amount<=0||amount>999999999999){$('goalMessage').textContent='Enter a valid positive amount.';return}if(type==='withdraw'&&amount>savedAmount(g.id)){$('goalMessage').textContent='Withdrawal exceeds saved balance.';return}
-const next=[...activity,{id:uid(),goalId:g.id,goalName:g.name,type,amount,date:today(),createdAt:Date.now()}];if(!persistSavings(goals,next))return;activity=next;input.value='';$('goalMessage').textContent=(type==='deposit'?'Contribution':'Withdrawal')+' recorded for '+g.name+'.';renderSavings()}
-deposit.addEventListener('click',()=>change('deposit'));withdraw.addEventListener('click',()=>change('withdraw'));actions.append(label,deposit,withdraw);card.append(top,progress,actions);list.append(card)}
+const deposit=make('button','','+ Add savings'),withdraw=make('button','withdraw','− Withdraw'),feedback=make('p','goal-feedback','');feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');deposit.type=withdraw.type='button';
+function change(type){
+const raw=input.value.trim(),amount=Math.round(Number(raw)*100)/100;
+if(!raw||!Number.isFinite(amount)||amount<=0||amount>999999999999){feedback.textContent='Please enter a positive amount first (e.g. 100000).';input.focus();return}
+if(type==='withdraw'&&amount>savedAmount(g.id)){feedback.textContent='You cannot withdraw more than '+money(savedAmount(g.id))+'.';return}
+const next=[...activity,{id:uid(),goalId:g.id,goalName:g.name,type,amount,date:today(),createdAt:Date.now()}];
+if(!persistSavings(goals,next)){feedback.textContent='Unable to save. Check browser storage settings.';return}
+activity=next;const message=(type==='deposit'?'Added ':'Withdrew ')+money(amount)+' '+(type==='deposit'?'to':'from')+' '+g.name+'.';
+$('goalMessage').textContent=message;renderSavings();
+const current=[...$('goalList').querySelectorAll('.goal-card')].find(el=>el.querySelector('h3')?.textContent===g.name);
+if(current){const status=current.querySelector('.goal-feedback');if(status)status.textContent=message}
+}
+deposit.addEventListener('click',()=>change('deposit'));withdraw.addEventListener('click',()=>change('withdraw'));actions.append(label,deposit,withdraw);card.append(top,progress,actions,feedback);list.append(card)}
+
 const recent=[...activity].sort((a,b)=>b.createdAt-a.createdAt).slice(0,100);if(!recent.length){const tr=make('tr'),td=make('td','empty','No savings activity yet.');td.colSpan=4;tr.append(td);history.append(tr)}
 for(const a of recent){const tr=make('tr');for(const v of [a.date,a.goalName||goals.find(g=>g.id===a.goalId)?.name||'Goal',a.type==='deposit'?'Contribution':'Withdrawal',(a.type==='deposit'?'+':'−')+money(a.amount)])tr.append(make('td','',v));history.append(tr)}
 }
